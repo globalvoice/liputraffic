@@ -6,8 +6,8 @@ import os
 app = FastAPI()
 
 # Configuration (replace with real values or use environment variables)
-LOGIN_URL = "https://api.traffilog.mx/login/json"
-DATA_URL = "https://api.traffilog.mx/location/json"
+LOGIN_URL = "https://api.traffilog.mx/clients/json"
+DATA_URL = "https://api.traffilog.mx/clients/json"
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 GOOGLE_MAPS_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 
