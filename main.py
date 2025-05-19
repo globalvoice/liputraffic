@@ -11,6 +11,8 @@ API_USERNAME       = os.getenv("API_USERNAME")
 API_PASSWORD       = os.getenv("API_PASSWORD")
 GOOGLE_MAPS_KEY    = os.getenv("GOOGLE_MAPS_API_KEY")
 GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
+OSM_REVERSE_URL    = "https://nominatim.openstreetmap.org/reverse"
+
 
 # --- Helper functions ---
 
@@ -54,7 +56,7 @@ async def get_location_coords(session_token: str, license_nmbr: str):
         if not data_list:
             raise Exception("No location data returned for that license")
         first = data_list[0]
-        # Coordinates may come as strings
+        # Handle possible field names
         lat_str = first.get("latitude") or first.get("latitud")
         lon_str = first.get("longitude") or first.get("longitud")
         if not lat_str or not lon_str:
@@ -65,15 +67,29 @@ async def get_location_coords(session_token: str, license_nmbr: str):
             raise Exception(f"Invalid coordinate format: {lat_str}, {lon_str}")
 
 async def reverse_geocode(lat: float, lon: float):
+    # First try Google
     params = {"latlng": f"{lat},{lon}", "key": GOOGLE_MAPS_KEY}
     async with httpx.AsyncClient() as client:
         resp = await client.get(GOOGLE_GEOCODE_URL, params=params)
         resp.raise_for_status()
         js = resp.json()
         results = js.get("results", [])
-        if not results:
-            raise Exception("Reverse geocoding returned no results")
-        return results[0].get("formatted_address", "Unknown address")
+        if results:
+            return results[0].get("formatted_address")
+
+    # Fallback to OpenStreetMap Nominatim
+    osm_params = {"lat": lat, "lon": lon, "format": "json"}
+    headers = {"User-Agent": "liputraffic-app/1.0"}
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(OSM_REVERSE_URL, params=osm_params, headers=headers)
+        resp.raise_for_status()
+        js = resp.json()
+        if "error" not in js and js.get("display_name"):
+            return js["display_name"]
+
+    # Last fallback: raw coordinates
+    return f"{lat},{lon}"
+
 
 # --- Endpoints ---
 
@@ -89,13 +105,13 @@ async def get_location(request: Request):
     except Exception:
         return JSONResponse(status_code=400, content={"error": "Invalid JSON body"})
 
-    # 2. Support both Retell ({"args": {...}}) and raw Postman body
+    # 2. Support both Retell and Postman payloads
     args = body.get("args", body)
     license_nmbr = args.get("license_nmbr")
     if not license_nmbr:
         return JSONResponse(status_code=422, content={"error": "Missing license_nmbr"})
 
-    # 3. Perform the lookup + geocoding
+    # 3. Lookup + geocode
     try:
         token = await get_token()
         lat, lon = await get_location_coords(token, license_nmbr)
@@ -103,9 +119,6 @@ async def get_location(request: Request):
         return {"address": address}
 
     except httpx.HTTPStatusError as e:
-        # e.g. 401, 403, 404 from Traffilog API
         return JSONResponse(status_code=e.response.status_code, content={"error": e.response.text})
-
     except Exception as e:
-        # Any other error
         return JSONResponse(status_code=500, content={"error": str(e)})
