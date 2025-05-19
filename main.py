@@ -1,18 +1,23 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-import httpx
 
 app = FastAPI()
 
 async def get_real_address_from_license(license_nmbr: str):
-    # Replace this with your real logic or API call
+    # Replace this with your real business logic
     return f"Simulated address for vehicle {license_nmbr}"
 
 @app.post("/get-location")
 async def get_location_handler(request: Request):
     try:
         body = await request.json()
-        args = body.get("args", {})
+
+        # Check if Retell-style: {"args": {"license_nmbr": "1659"}}
+        if "args" in body:
+            args = body["args"]
+        else:
+            args = body  # fallback to raw body from Postman
+
         license_nmbr = args.get("license_nmbr")
 
         if not license_nmbr:
