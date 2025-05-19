@@ -21,7 +21,4 @@ async def get_location(license_nmbr: str):
     async with httpx.AsyncClient() as client:
         response = await client.post(os.getenv("DATA_URL"), json=payload)
         response.raise_for_status()
-        data = response.json()
-
-        loc = data["result"]["data"][0]
-        return {"lat": loc["latitude"], "lon": loc["longitude"]}
+        return response.json()  # or handle as needed
