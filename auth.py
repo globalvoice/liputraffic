@@ -2,7 +2,8 @@ import os
 import httpx
 from cachetools import TTLCache
 
-token_cache = TTLCache(maxsize=1, ttl=21600)  # 6 hours
+# Cache token for 6 hours
+token_cache = TTLCache(maxsize=1, ttl=21600)
 
 async def get_token():
     if "token" in token_cache:
@@ -21,6 +22,13 @@ async def get_token():
     async with httpx.AsyncClient() as client:
         response = await client.post(os.getenv("LOGIN_URL"), json=payload)
         response.raise_for_status()
-        token = response.json().get("token") or response.json().get("result", {}).get("session_token")
+        result = response.json()
+
+        # Adjust token extraction based on actual structure
+        token = result.get("token") or result.get("result", {}).get("session_token")
+
+        if not token:
+            raise Exception("No session_token returned from login response")
+
         token_cache["token"] = token
         return token
