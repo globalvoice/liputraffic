@@ -6,7 +6,7 @@ import httpx
 app = FastAPI()
 
 # --- Configuration from environment ---
-TRAFFILOG_API_URL = os.getenv("DATA_URL")   # e.g. https://api.traffilog.mx/clients/json
+TRAFFILOG_API_URL = os.getenv("DATA_URL")      # e.g. https://api.traffilog.mx/clients/json
 API_USERNAME      = os.getenv("API_USERNAME")
 API_PASSWORD      = os.getenv("API_PASSWORD")
 GOOGLE_MAPS_KEY   = os.getenv("GOOGLE_MAPS_API_KEY")
@@ -14,6 +14,9 @@ GOOGLE_MAPS_KEY   = os.getenv("GOOGLE_MAPS_API_KEY")
 # --- Helper functions ---
 
 async def get_token():
+    """
+    Logs in and retrieves a session token from Traffilog.
+    """
     payload = {
         "action": {
             "name": "user_login",
@@ -33,6 +36,9 @@ async def get_token():
         return token
 
 async def get_location_coords(session_token: str, license_nmbr: str):
+    """
+    Calls Traffilog to fetch latitude and longitude for the given license number.
+    """
     payload = {
         "action": {
             "name": "api_get_data",
@@ -53,22 +59,12 @@ async def get_location_coords(session_token: str, license_nmbr: str):
         if not data_list:
             raise Exception("No location data returned for that license")
         first = data_list[0]
-        lat = first.get("latitude")
-        lon = first.get("longitude")
+        # Traffilog field names may vary; adjust if needed:
+        lat = first.get("latitude") or first.get("latitud")
+        lon = first.get("longitude") or first.get("longitud")
         if lat is None or lon is None:
             raise Exception("Invalid location data (missing latitude/longitude)")
         return lat, lon
-
-async def reverse_geocode(lat: float, lon: float):
-    params = {"latlng": f"{lat},{lon}", "key": GOOGLE_MAPS_KEY}
-    async with httpx.AsyncClient() as client:
-        resp = await client.get("https://maps.googleapis.com/maps/api/geocode/json", params=params)
-        resp.raise_for_status()
-        js = resp.json()
-        results = js.get("results", [])
-        if not results:
-            raise Exception("Reverse geocoding returned no results")
-        return results[0].get("formatted_address", "Unknown address")
 
 # --- Endpoints ---
 
@@ -84,7 +80,7 @@ async def get_location(request: Request):
     except Exception:
         return JSONResponse(status_code=400, content={"error": "Invalid JSON body"})
 
-    # 2. Support both Retell ({"args":{...}}) and raw body
+    # 2. Support both Retell ({"args": {...}}) and raw body from Postman
     args = body.get("args", body)
     license_nmbr = args.get("license_nmbr")
     if not license_nmbr:
@@ -94,13 +90,13 @@ async def get_location(request: Request):
     try:
         token = await get_token()
         lat, lon = await get_location_coords(token, license_nmbr)
-        address = await reverse_geocode(lat, lon)
-        return {"address": address}
+
+        # --- DEBUG OUTPUT: return raw coordinates ---
+        return {"latitude": lat, "longitude": lon}
 
     except httpx.HTTPStatusError as e:
-        # Propagate API errors (e.g., 401, 403, 404)
+        # Propagate API HTTP errors
         return JSONResponse(status_code=e.response.status_code, content={"error": e.response.text})
-
     except Exception as e:
-        # Catch-all
+        # Catch-all for any other errors
         return JSONResponse(status_code=500, content={"error": str(e)})
