@@ -1,22 +1,22 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from location import get_location
-from geocode import reverse_geocode
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
-class LocationRequest(BaseModel):
-    license_nmbr: str
-
-@app.get("/")
-def root():
-    return {"status": "liputraffic API is live"}
-
 @app.post("/get-location")
-async def get_address(request: LocationRequest):
+async def get_address(request: Request):
+    body = await request.body()
+    print("RAW BODY RECEIVED:", body)
+
     try:
-        coords = await get_location(request.license_nmbr)
-        address = await reverse_geocode(coords["lat"], coords["lon"])
-        return {"address": address}
+        json_data = await request.json()
+        return {"json_received": json_data}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Invalid JSON",
+                "raw_body": body.decode(),
+                "exception": str(e)
+            }
+        )
