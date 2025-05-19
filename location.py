@@ -14,11 +14,20 @@ async def get_location(license_nmbr: str):
                 "group_id": "",
                 "version": "4"
             }],
-            "session_token": token
+            "session_token": token  # This is the likely mistake
         }
     }
 
+    print("Sending payload to DATA_URL:", payload)
+
     async with httpx.AsyncClient() as client:
         response = await client.post(os.getenv("DATA_URL"), json=payload)
+
+        # Print raw response for debugging
+        print("Response text:", response.text)
+
         response.raise_for_status()
-        return response.json()  # or handle as needed
+        data = response.json()
+
+        loc = data["response"]["properties"]["data"][0]  # Adjust after seeing result
+        return {"lat": loc["latitude"], "lon": loc["longitude"]}
