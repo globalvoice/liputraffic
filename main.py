@@ -1,17 +1,21 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from location import get_location
 from geocode import reverse_geocode
 
 app = FastAPI()
 
+class LocationRequest(BaseModel):
+    license_nmbr: str
+
 @app.get("/")
 def root():
     return {"status": "liputraffic API is live"}
 
-@app.get("/get-location")
-async def get_address(license_nmbr: str = Query(..., alias="unit")):
+@app.post("/get-location")
+async def get_address(request: LocationRequest):
     try:
-        coords = await get_location(license_nmbr)
+        coords = await get_location(request.license_nmbr)
         address = await reverse_geocode(coords["lat"], coords["lon"])
         return {"address": address}
     except Exception as e:
