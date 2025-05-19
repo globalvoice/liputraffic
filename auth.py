@@ -24,11 +24,10 @@ async def get_token():
         response.raise_for_status()
         result = response.json()
 
-        # ADD THIS TO DEBUG
         print("Login response JSON:", result)
 
-        # Adjust this based on what prints
-        token = result.get("token") or result.get("result", {}).get("session_token")
+        # ✅ Updated token extraction
+        token = result.get("response", {}).get("properties", {}).get("session_token")
 
         if not token:
             raise Exception("No session_token returned from login response")
