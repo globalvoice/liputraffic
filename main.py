@@ -6,12 +6,12 @@ import httpx
 app = FastAPI()
 
 # --- Configuration from environment ---
-TRAFFILOG_API_URL   = os.getenv("DATA_URL")           # e.g. https://api.traffilog.mx/clients/json
-API_USERNAME       = os.getenv("API_USERNAME")
-API_PASSWORD       = os.getenv("API_PASSWORD")
-GOOGLE_MAPS_KEY    = os.getenv("GOOGLE_MAPS_API_KEY")
-GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
-OSM_REVERSE_URL    = "https://nominatim.openstreetmap.org/reverse"
+TRAFFILOG_API_URL    = os.getenv("DATA_URL")         # e.g. https://api.traffilog.mx/clients/json
+API_USERNAME         = os.getenv("API_USERNAME")
+API_PASSWORD         = os.getenv("API_PASSWORD")
+Maps_KEY      = os.getenv("Maps_API_KEY")
+GOOGLE_GEOCODE_URL   = "https://maps.googleapis.com/maps/api/geocode/json"
+OSM_REVERSE_URL      = "https://nominatim.openstreetmap.org/reverse"
 
 
 # --- Helper functions ---
@@ -68,27 +68,76 @@ async def get_location_coords(session_token: str, license_nmbr: str):
 
 async def reverse_geocode(lat: float, lon: float):
     # First try Google
-    params = {"latlng": f"{lat},{lon}", "key": GOOGLE_MAPS_KEY}
+    params = {"latlng": f"{lat},{lon}", "key": Maps_KEY}
     async with httpx.AsyncClient() as client:
         resp = await client.get(GOOGLE_GEOCODE_URL, params=params)
         resp.raise_for_status()
         js = resp.json()
         results = js.get("results", [])
+
         if results:
-            return results[0].get("formatted_address")
+            first_result = results[0]
+            detailed_address = {
+                "formatted_address": first_result.get("formatted_address"),
+                "street_number": None,
+                "route": None,
+                "city": None,
+                "state": None,
+                "country": None,
+                "postal_code": None,
+                "plus_code": first_result.get("plus_code", {}).get("global_code")
+            }
+
+            for component in first_result.get("address_components", []):
+                types = component.get("types", [])
+                if "street_number" in types:
+                    detailed_address["street_number"] = component.get("long_name")
+                elif "route" in types:
+                    detailed_address["route"] = component.get("long_name")
+                elif "locality" in types:  # city
+                    detailed_address["city"] = component.get("long_name")
+                elif "administrative_area_level_1" in types:  # state/province
+                    detailed_address["state"] = component.get("long_name")
+                elif "country" in types:
+                    detailed_address["country"] = component.get("long_name")
+                elif "postal_code" in types:
+                    detailed_address["postal_code"] = component.get("long_name")
+            
+            return detailed_address
 
     # Fallback to OpenStreetMap Nominatim
-    osm_params = {"lat": lat, "lon": lon, "format": "json"}
+    # OSM Nominatim provides a less structured address, but we can still try to extract relevant parts.
+    osm_params = {"lat": lat, "lon": lon, "format": "jsonv2"} # Use jsonv2 for more structured data
     headers = {"User-Agent": "liputraffic-app/1.0"}
     async with httpx.AsyncClient() as client:
         resp = await client.get(OSM_REVERSE_URL, params=osm_params, headers=headers)
         resp.raise_for_status()
         js = resp.json()
-        if "error" not in js and js.get("display_name"):
-            return js["display_name"]
 
-    # Last fallback: raw coordinates
-    return f"{lat},{lon}"
+        if "error" not in js and js.get("address"):
+            osm_address = js.get("address", {})
+            return {
+                "formatted_address": js.get("display_name"),
+                "street_number": osm_address.get("house_number"),
+                "route": osm_address.get("road"),
+                "city": osm_address.get("city") or osm_address.get("town") or osm_address.get("village"),
+                "state": osm_address.get("state"),
+                "country": osm_address.get("country"),
+                "postal_code": osm_address.get("postcode"),
+                "plus_code": None # OSM Nominatim doesn't provide Plus Codes
+            }
+
+    # Last fallback: raw coordinates if no geocoding service provides a result
+    return {
+        "formatted_address": f"{lat},{lon}",
+        "street_number": None,
+        "route": None,
+        "city": None,
+        "state": None,
+        "country": None,
+        "postal_code": None,
+        "plus_code": None
+    }
 
 
 # --- Endpoints ---
@@ -115,8 +164,8 @@ async def get_location(request: Request):
     try:
         token = await get_token()
         lat, lon = await get_location_coords(token, license_nmbr)
-        address = await reverse_geocode(lat, lon)
-        return {"address": address}
+        detailed_address_info = await reverse_geocode(lat, lon) # Now returns a dict
+        return detailed_address_info # Return the dictionary directly
 
     except httpx.HTTPStatusError as e:
         return JSONResponse(status_code=e.response.status_code, content={"error": e.response.text})
